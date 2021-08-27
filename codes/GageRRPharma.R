@@ -16,6 +16,7 @@ specs <- c(90,110)
 #####################
 ### GAGE R&R DATA ###
 #####################
+
 ### Simulate data ###
 batches <- data.frame(Batch=c("A", "B", "C"), ShiftBatch=c(85, 100, 110)) #rnorm(3, mean=99, sd=1)
 laboratories <- data.frame(Laboratory=c("Lab A", "Lab B", "Lab C", "Lab D", "Lab E"), ShiftLab=c(2.2129925, 1.7, 1.2,  2.6645,  4.15)) #rnorm(5, mean=0, sd=1)
@@ -50,6 +51,7 @@ dataGage <- dataGage %>% mutate(Laboratory=factor(Laboratory),
                                 Batch=factor(Batch))
 glimpse(dataGage)
 
+# Plot "Variability charts as a function of laboratory, day, analyst, device and batch"
 png("results/varPlot.png", height=480, width=800, res=100)
 varPlot(Value~(Laboratory+Day)/Analyst/Device, 
         Data=as.data.frame(dataGage),
@@ -64,12 +66,13 @@ dataGage <- dataGage %>% mutate(Day=paste(Day, Laboratory, sep="_"),
                                 Analyst=paste(Analyst, Laboratory, sep="_"),
                                 Device=paste(Device, Laboratory, sep="_"))
 
-# the lmer model produce a warning and brms is very slow, there is something going on with the data.
+# First try a frequentist approach with lmer to adjust the model and then do it in bayesian (slower).
 modelGageLmer <- lmer(formula=Value ~ Batch + (1|Laboratory) + (1|Day) + (1|Analyst) + (1|Device), data=dataGage)
 tidy(modelGageLmer) %>%
   filter(effect=="ran_pars") %>%
   mutate(`Pct of total`=estimate^2*100/(sum(estimate^2)))
 
+# Bayesian model with brms
 modelGage <- brm(formula=Value ~ Batch + (1|Laboratory) + (1|Day) + (1|Analyst) + (1|Device), data=dataGage, chains=3, iter=50000)
 saveRDS(modelGage, "results/modelGage.rds")
 # modelGage <- readRDS("results/modelGage.rds")
@@ -129,7 +132,7 @@ predictedMS <- lapply(means,FUN=function(mean){
 
 predictedMS <- bind_rows(predictedMS)
 
-# Plot PoS to be within spec vs simulated 'true' batch mean
+# Plot "Probability of success to be within specification as a function of the batch true value"
 pMS <- ggplot(data=predictedMS, aes(x=Mean, y=PoS)) + theme_bw() +
   labs(x="'True' Batch Value", y="Probability of Success to be within specifications") +
   geom_vline(xintercept = specs[1],colour="red",
@@ -144,6 +147,7 @@ randomEffectsWithoutLaboratory <- chainsGage$sd_Analyst__Intercept^2 + chainsGag
 shape=mean(randomEffectsWithoutLaboratory)**2/var(randomEffectsWithoutLaboratory)+2
 scale=mean(randomEffectsWithoutLaboratory)**3/var(randomEffectsWithoutLaboratory)+mean(randomEffectsWithoutLaboratory)
 
+# check if the inverse gamma fits well the posterior
 png("results/prior.png", height=480, width=800)
 #plot the original chain
 plot(density(randomEffectsWithoutLaboratory))
@@ -154,14 +158,15 @@ dev.off()
 ################
 ### CPV DATA ###
 ################
-# GAGE R&R data do not allow to determine the process variability. We need to extract that from CPV data.
 
+### Simulate data ###
 dataCPV <- data.frame(Batch=LETTERS, Value=rnorm(26, mean=104, sd=2.5)) 
 write.xlsx(dataCPV, "data/dataCPV.xlsx", overwrite = T)
 # dataCPV <- read.xlsx("data/dataCPV.xlsx")
 
 controlLimitsCPV <- c(mean(dataCPV$Value)+3*sd(dataCPV$Value), mean(dataCPV$Value)-3*sd(dataCPV$Value))
 
+# plot "Measured value of batches produced"
 pCPV <- ggplot(aes(x=Batch, y=Value), data=dataCPV) + 
   geom_point() + theme_bw() +
   geom_hline(yintercept=c(specs[1], specs[2]), col="red") +
@@ -170,6 +175,8 @@ pCPV <- ggplot(aes(x=Batch, y=Value), data=dataCPV) +
 ggsave("results/pCPV.png", pCPV, height=10, width=14, unit="cm")
 
 ### Model ###
+
+# Bayesian model with stan. We use stan and not brms as we can fine tune the model more easily with stan.
 modelCPV <- '
 data {
   int<lower=0> N;
@@ -224,6 +231,7 @@ samples <- sample(1:length(randomEffectsWithoutLaboratory), length(chainsCPV$sig
 predictionsCPVBatchAndResidual <- rnorm(n=nrow(chainsCPV$alpha), mean=chainsCPV$alpha, sd=sqrt(randomEffectsWithoutLaboratory[samples]+chainsCPV$sigma2b))
 qtCPVBatchAndResidual <- as.data.frame(t(quantile(predictionsCPVBatchAndResidual, probs = c(0.025,0.975))))
 
+# Plot "CPV prediction"
 pCPVPred <- ggplot(aes(x=Batch, y=Value), data=dataCPV) + 
   geom_point() + theme_bw() +
   geom_hline(yintercept=c(specs[1], specs[2]), col="red") +
@@ -232,7 +240,7 @@ pCPVPred <- ggplot(aes(x=Batch, y=Value), data=dataCPV) +
   geom_ribbon(aes(x=as.numeric(factor(LETTERS)), ymin=qtCPVOnlyBatch$`2.5%`, ymax=qtCPVOnlyBatch$`97.5%`), alpha=0.3, fill="red")
 ggsave("results/pCPVPred.png", pCPVPred, height=10, width=14, unit="cm")
 
-# make predictions for the labs of Gage R&R
+# make predictions for each lab from Gage R&R
 chainsGageLabs <- chainsGage[,grepl("r_Laboratory", names(chainsGage))]
 
 simulationsPerLab <- lapply(1:ncol(chainsGageLabs), function(i){
@@ -243,11 +251,14 @@ simulationsPerLab <- lapply(1:ncol(chainsGageLabs), function(i){
   
   return(data.frame(simulations))
 })
+
 names(simulationsPerLab) <- names(chainsGageLabs)
+
 simulationsPerLab <- bind_rows(simulationsPerLab, .id="Lab") %>% 
   mutate(Lab=str_remove_all(Lab, "r_Laboratory\\[")) %>% 
   mutate(Lab=str_remove_all(Lab, ",Intercept\\]"))
 
+# Plot "Posterior predictive distribution of future measurement as a function of the measuring laboratory"
 pMeasurementsInLab <- ggplot(simulationsPerLab, aes(simulations, colour = Lab)) +
   geom_density() +
   geom_vline(xintercept = specs[1],colour="red",
