@@ -1,3 +1,8 @@
+####################################################################################
+### This code was written to generate the content of this publication: URLXXXXXX ###
+### Author: Thomas de Marchin                                                    ###
+####################################################################################
+
 rm(list=ls())
 
 library(openxlsx)
