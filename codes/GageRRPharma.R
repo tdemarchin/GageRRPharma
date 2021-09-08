@@ -1,7 +1,8 @@
-####################################################################################
-### This code was written to generate the content of this publication: URLXXXXXX ###
-### Author: Thomas de Marchin                                                    ###
-####################################################################################
+############################################################################################################################################
+### This code was written to generate the content of this publication: 																                                	 ###
+### https://towardsdatascience.com/are-my-bio-pharmaceutical-assay-performances-reliable-only-probability-of-success-counts-9f85f27cb208 ###
+### Author: Thomas de Marchin                                                    											                            			 ###
+############################################################################################################################################
 
 rm(list=ls())
 
@@ -23,13 +24,18 @@ specs <- c(90,110)
 #####################
 
 ### Simulate data ###
-batches <- data.frame(Batch=c("A", "B", "C"), ShiftBatch=c(85, 100, 110)) #rnorm(3, mean=99, sd=1)
-laboratories <- data.frame(Laboratory=c("Lab A", "Lab B", "Lab C", "Lab D", "Lab E"), ShiftLab=c(2.2129925, 1.7, 1.2,  2.6645,  4.15)) #rnorm(5, mean=0, sd=1)
+batches <- data.frame(Batch=c("A", "B", "C"), ShiftBatch=c(85, 100, 110)) 
+laboratories <- data.frame(Laboratory=c("Lab A", "Lab B", "Lab C", "Lab D", "Lab E"), 
+                           ShiftLab=c(2.2129925, 1.7, 1.2,  2.6645,  4.15))
 day <- data.frame(Day=c("1", "2"))
 analyst <- data.frame(Analyst=c("1", "2"))
 device <- data.frame(Device=c("1", "2"))
 
-dataGage <- laboratories %>% tidyr::crossing(day) %>% tidyr::crossing(analyst) %>% tidyr::crossing(device) %>% tidyr::crossing(batches)
+dataGage <- laboratories %>% 
+  tidyr::crossing(day) %>% 
+  tidyr::crossing(analyst) %>% 
+  tidyr::crossing(device) %>% 
+  tidyr::crossing(batches)
 
 nRep <- 3
 value <- c()
@@ -78,7 +84,8 @@ tidy(modelGageLmer) %>%
   mutate(`Pct of total`=estimate^2*100/(sum(estimate^2)))
 
 # Bayesian model with brms
-modelGage <- brm(formula=Value ~ Batch + (1|Laboratory) + (1|Day) + (1|Analyst) + (1|Device), data=dataGage, chains=3, iter=50000)
+modelGage <- brm(formula=Value ~ Batch + (1|Laboratory) + (1|Day) + (1|Analyst) + (1|Device), 
+                 data=dataGage, chains=3, iter=50000)
 saveRDS(modelGage, "results/modelGage.rds")
 # modelGage <- readRDS("results/modelGage.rds")
 
